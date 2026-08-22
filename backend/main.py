@@ -84,6 +84,8 @@ class AcceptOffer(BaseModel):
 class PaymentIn(BaseModel):
     offer_id: str
     method: str = "UPI •••• 4821"
+    payment_plan: str = "full"
+    amount: int | None = None
 
 
 def db() -> sqlite3.Connection:
@@ -328,12 +330,16 @@ async def accept(oid:str, body:AcceptOffer):
 async def payment(body:PaymentIn):
     con=db(); offer=con.execute("SELECT * FROM offers WHERE id=?",(body.offer_id,)).fetchone()
     if not offer: con.close(); raise HTTPException(404,"Offer not found")
-    existing=con.execute("SELECT * FROM payments WHERE offer_id=? AND status='success'",(body.offer_id,)).fetchone()
+    existing=con.execute("SELECT * FROM payments WHERE offer_id=? AND status IN ('success','partial')",(body.offer_id,)).fetchone()
     if existing:
         con.close()
-        return {**dict(existing),"intent_id":offer["intent_id"],"merchant":MERCHANT_BY_ID[offer["merchant_id"]]}
-    pid="P"+uuid.uuid4().hex[:10].upper(); con.execute("INSERT INTO payments VALUES(?,?,?,?,?,?)",(pid,body.offer_id,offer["price"],body.method,"success",datetime.now().isoformat())); con.execute("UPDATE intents SET status='paid' WHERE id=?",(offer["intent_id"],)); con.commit(); con.close()
-    result={"id":pid,"offer_id":body.offer_id,"intent_id":offer["intent_id"],"amount":offer["price"],"status":"success","method":body.method,"merchant":MERCHANT_BY_ID[offer["merchant_id"]]}
+        paid=dict(existing)
+        return {**paid,"intent_id":offer["intent_id"],"merchant":MERCHANT_BY_ID[offer["merchant_id"]],"payment_plan":"split" if paid["status"]=="partial" else "full","total":offer["price"],"remaining":max(0,offer["price"]-paid["amount"])}
+    is_split=body.payment_plan == "split"
+    paid_now=min(offer["price"], body.amount if body.amount is not None else (math.ceil(offer["price"]/2) if is_split else offer["price"]))
+    status="partial" if is_split and paid_now < offer["price"] else "success"
+    pid="P"+uuid.uuid4().hex[:10].upper(); con.execute("INSERT INTO payments VALUES(?,?,?,?,?,?)",(pid,body.offer_id,paid_now,body.method,status,datetime.now().isoformat())); con.execute("UPDATE intents SET status=? WHERE id=?",("partially_paid" if status=="partial" else "paid",offer["intent_id"])); con.commit(); con.close()
+    result={"id":pid,"offer_id":body.offer_id,"intent_id":offer["intent_id"],"amount":paid_now,"total":offer["price"],"remaining":max(0,offer["price"]-paid_now),"status":status,"payment_plan":"split" if is_split else "full","method":body.method,"merchant":MERCHANT_BY_ID[offer["merchant_id"]]}
     await publish(offer["intent_id"],"payment_received",result); return result
 
 

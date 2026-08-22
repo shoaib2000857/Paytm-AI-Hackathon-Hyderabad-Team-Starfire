@@ -16,6 +16,7 @@ Paytm Intent Mesh is a working two-sided prototype of an agentic commerce layer 
 - AI extraction of multilingual merchant price, readiness, delivery, and fulfilment responses
 - Functional merchant decline path and duplicate-response protection
 - Offer acceptance and simulated Paytm UPI payment
+- Paytm QR and Pay Aadha milestone-payment simulations
 - Live merchant `₹ received` confirmation and Opportunity Pulse endpoint/screen
 - Twenty synthetic merchants spanning bakery, café, phone repair, tailoring, salon, pharmacy, catering, grocery, flowers, printing, plumbing, and stationery
 

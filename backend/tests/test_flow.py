@@ -71,3 +71,14 @@ def test_gps_changes_distance_and_proximity_ranking():
         assert created["matches"][0]["distance_km"]==0.0
         persisted=client.get(f"/api/intents/{created['id']}/matches").json()
         assert persisted[0]["distance_km"]==0.0
+
+def test_pay_aadha_records_partial_payment_and_balance():
+    with client:
+        parsed=client.post("/api/intents/parse",json={"text":"eggless cake under ₹800 tomorrow"}).json()["parsed"]
+        intent=client.post("/api/intents",json={"raw_text":"cake","parsed":parsed}).json()
+        offer=client.post("/api/merchant/M001/respond",json={"intent_id":intent["id"],"can_fulfil":True,"price":751,"ready_at":"18:30"}).json()
+        client.post(f"/api/offers/{offer['id']}/accept",json={})
+        payment=client.post("/api/payments/simulate",json={"offer_id":offer["id"],"payment_plan":"split","amount":376,"method":"Pay Aadha"}).json()
+        assert payment["status"]=="partial"
+        assert payment["amount"]==376 and payment["remaining"]==375
+        assert payment["total"]==751 and payment["payment_plan"]=="split"
