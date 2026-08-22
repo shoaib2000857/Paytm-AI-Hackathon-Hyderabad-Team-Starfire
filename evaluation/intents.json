@@ -1,0 +1,7 @@
+[
+ {"text":"1 kg eggless chocolate cake under ₹800 tomorrow before 7 PM","category":"bakery","budget_max":800,"must_match":["M001","M002","M003"]},
+ {"text":"Kal shaam tak eggless chocolate cake chahiye, 800 ke andar","category":"bakery","budget_max":800,"must_match":["M001"]},
+ {"text":"iPhone 15 screen aaj replace karwana hai, ₹4000 ke andar","category":"phone_repair","budget_max":4000,"must_match":["M006","M007"]},
+ {"text":"Need a genuine iPhone 15 display replacement today under Rs 4000","category":"phone_repair","budget_max":4000,"must_match":["M007"]},
+ {"text":"Blouse Saturday tak stitch chahiye, budget ₹900, ek alteration included","category":"tailor","budget_max":900,"must_match":["M009","M010","M011"]}
+]
