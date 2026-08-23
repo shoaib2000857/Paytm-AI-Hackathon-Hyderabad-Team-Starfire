@@ -21,6 +21,7 @@ Paytm Intent Mesh turns natural language into a structured Intent Packet and rou
 Matched merchants receive the request through a Paytm Soundbox-style interface and can respond by voice in Hindi, Telugu, Hinglish, or other supported Indian languages. Their response becomes a structured offer that appears live for the customer. The customer chooses an offer and completes a simulated Paytm payment. Unfulfilled requests power Opportunity Pulse, which shows merchants explicit unmet demand around them.
 
 At checkout, the prototype supports full UPI, an order-specific Paytm QR, and Pay Aadha: a simulated milestone option that pays 50% now and records the remaining 50% as due after fulfilment confirmation. This demonstrates how Paytm could reduce trust friction for custom and service orders without claiming real escrow or production payment integration.
+BBriefly describe your AI-powered solution*
 
 The core insight is: **human language becomes the merchant API.** Intent Mesh makes offline merchants agent-accessible without requiring a website, complete catalogue, or custom software integration.
 

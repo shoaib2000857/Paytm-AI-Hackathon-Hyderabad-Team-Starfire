@@ -344,6 +344,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.3.0"
+  paytm_allinonesdk:
+    dependency: "direct main"
+    description:
+      name: paytm_allinonesdk
+      sha256: "7a6b4cbd79acc2dc8aa77941801badaafd99b47a6ded42ce771fbc99a4da3703"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.2.8"
   platform:
     dependency: transitive
     description:

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
+import 'package:paytm_allinonesdk/paytm_allinonesdk.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:record/record.dart';
 
@@ -45,7 +46,8 @@ Future<String> transcribeAudio(String path) async {
 }
 
 class IntentMeshApp extends StatelessWidget {
-  const IntentMeshApp({super.key});
+  final Widget home;
+  const IntentMeshApp({super.key, this.home = const AskScreen()});
   @override
   Widget build(BuildContext context) => MaterialApp(
         debugShowCheckedModeBanner: false,
@@ -55,7 +57,7 @@ class IntentMeshApp extends StatelessWidget {
           scaffoldBackgroundColor: canvas,
           colorScheme: ColorScheme.fromSeed(
               seedColor: paytmBlue, primary: navy, surface: Colors.white),
-          fontFamily: 'sans-serif',
+          fontFamily: 'AppRoboto',
           appBarTheme: const AppBarTheme(
               backgroundColor: Colors.white,
               surfaceTintColor: Colors.transparent,
@@ -91,12 +93,13 @@ class IntentMeshApp extends StatelessWidget {
                   borderRadius: BorderRadius.circular(20),
                   borderSide: const BorderSide(color: paytmBlue, width: 2))),
         ),
-        home: const AskScreen(),
+        home: home,
       );
 }
 
 class AskScreen extends StatefulWidget {
-  const AskScreen({super.key});
+  final bool audioEnabled;
+  const AskScreen({super.key, this.audioEnabled = true});
   @override
   State<AskScreen> createState() => _AskScreenState();
 }
@@ -105,7 +108,8 @@ class _AskScreenState extends State<AskScreen> {
   final text = TextEditingController(
       text:
           'Mujhe kal 7 baje tak ₹800 ke andar 1 kg eggless chocolate cake chahiye.');
-  final recorder = AudioRecorder();
+  late final AudioRecorder? recorder =
+      widget.audioEnabled ? AudioRecorder() : null;
   Position? position;
   bool recording = false;
   bool busy = false;
@@ -113,15 +117,16 @@ class _AskScreenState extends State<AskScreen> {
 
   @override
   void dispose() {
-    recorder.dispose();
+    recorder?.dispose();
     text.dispose();
     super.dispose();
   }
 
   Future<void> toggleVoice() async {
+    if (recorder == null) return;
     try {
       if (recording) {
-        final path = await recorder.stop();
+        final path = await recorder!.stop();
         if (mounted) setState(() => recording = false);
         if (path == null) throw Exception('Audio recording was not saved');
         if (mounted) setState(() => busy = true);
@@ -129,11 +134,11 @@ class _AskScreenState extends State<AskScreen> {
         text.text = transcript;
         text.selection = TextSelection.collapsed(offset: text.text.length);
       } else {
-        if (!await recorder.hasPermission()) {
+        if (!await recorder!.hasPermission()) {
           throw Exception('Microphone permission was denied');
         }
         final directory = await getTemporaryDirectory();
-        await recorder.start(
+        await recorder!.start(
             const RecordConfig(
                 encoder: AudioEncoder.aacLc,
                 bitRate: 128000,
@@ -677,11 +682,13 @@ class MerchantSoundboxScreen extends StatefulWidget {
   final Map<String, dynamic> intent;
   final String intentId;
   final List matches;
+  final bool audioEnabled;
   const MerchantSoundboxScreen(
       {super.key,
       required this.intent,
       required this.intentId,
-      required this.matches});
+      required this.matches,
+      this.audioEnabled = true});
   @override
   State<MerchantSoundboxScreen> createState() => _MerchantSoundboxScreenState();
 }
@@ -690,7 +697,8 @@ class _MerchantSoundboxScreenState extends State<MerchantSoundboxScreen> {
   late Map merchant;
   late final TextEditingController price;
   late final TextEditingController ready;
-  final recorder = AudioRecorder();
+  late final AudioRecorder? recorder =
+      widget.audioEnabled ? AudioRecorder() : null;
   bool delivery = false;
   bool busy = false;
   bool listening = false;
@@ -715,16 +723,17 @@ class _MerchantSoundboxScreenState extends State<MerchantSoundboxScreen> {
 
   @override
   void dispose() {
-    recorder.dispose();
+    recorder?.dispose();
     price.dispose();
     ready.dispose();
     super.dispose();
   }
 
   Future<void> toggleMerchantVoice() async {
+    if (recorder == null) return;
     try {
       if (listening) {
-        final path = await recorder.stop();
+        final path = await recorder!.stop();
         if (mounted) {
           setState(() {
             listening = false;
@@ -753,11 +762,11 @@ class _MerchantSoundboxScreenState extends State<MerchantSoundboxScreen> {
           });
         }
       } else {
-        if (!await recorder.hasPermission()) {
+        if (!await recorder!.hasPermission()) {
           throw Exception('Microphone permission was denied');
         }
         final directory = await getTemporaryDirectory();
-        await recorder.start(
+        await recorder!.start(
             const RecordConfig(
                 encoder: AudioEncoder.aacLc,
                 bitRate: 128000,
@@ -1215,21 +1224,63 @@ class _PaymentScreenState extends State<PaymentScreen> {
   int get remaining => total - payNow;
 
   Future<void> pay() async {
-    setState(() => busy = true);
+    setState(() {
+      busy = true;
+      error = null;
+    });
     try {
       await http.post(
           Uri.parse('$apiBase/api/offers/${widget.offer['id']}/accept'),
           headers: {'Content-Type': 'application/json'},
           body: '{}');
+      var verifiedMethod = paymentMode == 'qr'
+          ? 'Paytm QR'
+          : paymentMode == 'split'
+              ? 'Pay Aadha · UPI •••• 4821'
+              : 'UPI •••• 4821';
+      if (paymentMode == 'paytm') {
+        if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+          throw Exception('Paytm staging checkout requires the Android app');
+        }
+        final initiateResponse = await http.post(
+            Uri.parse('$apiBase/api/paytm/initiate'),
+            headers: {'Content-Type': 'application/json'},
+            body:
+                jsonEncode({'offer_id': widget.offer['id'], 'amount': payNow}));
+        if (initiateResponse.statusCode != 200) {
+          throw Exception('Paytm staging could not create the transaction');
+        }
+        final transaction = jsonDecode(initiateResponse.body) as Map;
+        final sdkResult = await AllInOneSdk.startTransaction(
+            '${transaction['mid']}',
+            '${transaction['orderId']}',
+            '${transaction['amount']}',
+            '${transaction['txnToken']}',
+            '${transaction['callbackUrl']}',
+            transaction['isStaging'] == true,
+            false,
+            true);
+        final statusResponse = await http.post(
+            Uri.parse('$apiBase/api/paytm/status'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'order_id': transaction['orderId']}));
+        final status = statusResponse.statusCode == 200
+            ? jsonDecode(statusResponse.body) as Map
+            : <String, dynamic>{};
+        final verified =
+            status['body']?['resultInfo']?['resultStatus'] == 'TXN_SUCCESS' ||
+                sdkResult?['STATUS'] == 'TXN_SUCCESS';
+        if (!verified) {
+          throw Exception(
+              'Paytm did not confirm this test payment. No order was marked paid.');
+        }
+        verifiedMethod = 'Paytm Staging · ${transaction['orderId']}';
+      }
       final r = await http.post(Uri.parse('$apiBase/api/payments/simulate'),
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode({
             'offer_id': widget.offer['id'],
-            'method': paymentMode == 'qr'
-                ? 'Paytm QR'
-                : paymentMode == 'split'
-                    ? 'Pay Aadha · UPI •••• 4821'
-                    : 'UPI •••• 4821',
+            'method': verifiedMethod,
             'payment_plan': paymentMode == 'split' ? 'split' : 'full',
             'amount': payNow
           }));
@@ -1273,6 +1324,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 title: 'Pay full with UPI',
                 subtitle: 'Pay ₹$total now · UPI •••• 4821',
                 onTap: () => setState(() => paymentMode = 'full')),
+            PaymentOption(
+                selected: paymentMode == 'paytm',
+                icon: Icons.verified_user_outlined,
+                badge: 'STAGING',
+                title: 'Paytm Test Gateway',
+                subtitle: 'Open the official Paytm All-in-One checkout',
+                onTap: () => setState(() => paymentMode = 'paytm')),
             PaymentOption(
                 selected: paymentMode == 'qr',
                 icon: Icons.qr_code_2_rounded,
@@ -1390,18 +1448,22 @@ class _PaymentScreenState extends State<PaymentScreen> {
                         Icon(
                             paymentMode == 'qr'
                                 ? Icons.qr_code_2_rounded
-                                : paymentMode == 'split'
-                                    ? Icons.handshake_outlined
-                                    : Icons.account_balance_rounded,
+                                : paymentMode == 'paytm'
+                                    ? Icons.verified_user_outlined
+                                    : paymentMode == 'split'
+                                        ? Icons.handshake_outlined
+                                        : Icons.account_balance_rounded,
                             color: Colors.white70,
                             size: 18),
                         const SizedBox(width: 8),
                         Text(
                             paymentMode == 'qr'
                                 ? 'PAYTM QR'
-                                : paymentMode == 'split'
-                                    ? 'PAY AADHA · 50% NOW'
-                                    : 'UPI  •••• 4821',
+                                : paymentMode == 'paytm'
+                                    ? 'PAYTM STAGING GATEWAY'
+                                    : paymentMode == 'split'
+                                        ? 'PAY AADHA · 50% NOW'
+                                        : 'UPI  •••• 4821',
                             style: const TextStyle(
                                 color: Colors.white70,
                                 fontWeight: FontWeight.w600)),
@@ -1441,7 +1503,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
                     ? 'Paying securely…'
                     : paymentMode == 'qr'
                         ? 'I have paid ₹$total'
-                        : 'Pay ₹$payNow securely')),
+                        : paymentMode == 'paytm'
+                            ? 'Continue with Paytm Test Gateway'
+                            : 'Pay ₹$payNow securely')),
             if (error != null)
               Padding(
                   padding: const EdgeInsets.only(top: 12),
@@ -1568,7 +1632,9 @@ class SuccessScreen extends StatelessWidget {
 
 class OpportunityPulseScreen extends StatefulWidget {
   final String merchantId;
-  const OpportunityPulseScreen({super.key, required this.merchantId});
+  final Map<String, dynamic>? initialData;
+  const OpportunityPulseScreen(
+      {super.key, required this.merchantId, this.initialData});
   @override
   State<OpportunityPulseScreen> createState() => _OpportunityPulseScreenState();
 }
@@ -1580,7 +1646,8 @@ class _OpportunityPulseScreenState extends State<OpportunityPulseScreen> {
   @override
   void initState() {
     super.initState();
-    load();
+    data = widget.initialData;
+    if (data == null) load();
   }
 
   Future<void> load() async {
@@ -1810,16 +1877,21 @@ class StepLabel extends StatelessWidget {
   const StepLabel({super.key, required this.step, required this.label});
   @override
   Widget build(BuildContext context) => Row(children: [
-        Text(label,
-            style: const TextStyle(
-                color: Color(0xff138AB5),
-                fontSize: 11,
-                letterSpacing: 1.2,
-                fontWeight: FontWeight.w900)),
-        const Spacer(),
-        Text(step,
-            style: const TextStyle(
-                color: muted, fontSize: 10, fontWeight: FontWeight.w800))
+        Flexible(
+            child: Text(label,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    color: Color(0xff138AB5),
+                    fontSize: 11,
+                    letterSpacing: 1.2,
+                    fontWeight: FontWeight.w900))),
+        const SizedBox(width: 12),
+        Flexible(
+            child: Text(step,
+                textAlign: TextAlign.end,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    color: muted, fontSize: 10, fontWeight: FontWeight.w800)))
       ]);
 }
 

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from paytmchecksum import PaytmChecksum
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -86,6 +87,15 @@ class PaymentIn(BaseModel):
     method: str = "UPI •••• 4821"
     payment_plan: str = "full"
     amount: int | None = None
+
+
+class PaytmInitiateIn(BaseModel):
+    offer_id: str
+    amount: int | None = None
+
+
+class PaytmStatusIn(BaseModel):
+    order_id: str
 
 
 def db() -> sqlite3.Connection:
@@ -251,6 +261,11 @@ async def publish(session: str, event: str, data: dict) -> None:
 def health(): return {"status":"ok","service":"Paytm Intent Mesh","merchants":len(MERCHANTS),"sarvam_configured":bool(os.getenv("SARVAM_API_KEY"))}
 
 
+@app.get("/api/dashboard")
+def dashboard_status():
+    return {"status":"online","service":"Paytm Intent Mesh","merchants":len(MERCHANTS),"sarvam_configured":bool(os.getenv("SARVAM_API_KEY")),"paytm_staging_configured":bool(os.getenv("PAYTM_MID") and os.getenv("PAYTM_MERCHANT_KEY"))}
+
+
 @app.post("/api/intents/parse")
 async def parse_intent(body: IntentIn):
     sarvam_parsed=await parse_with_sarvam(body.text)
@@ -341,6 +356,37 @@ async def payment(body:PaymentIn):
     pid="P"+uuid.uuid4().hex[:10].upper(); con.execute("INSERT INTO payments VALUES(?,?,?,?,?,?)",(pid,body.offer_id,paid_now,body.method,status,datetime.now().isoformat())); con.execute("UPDATE intents SET status=? WHERE id=?",("partially_paid" if status=="partial" else "paid",offer["intent_id"])); con.commit(); con.close()
     result={"id":pid,"offer_id":body.offer_id,"intent_id":offer["intent_id"],"amount":paid_now,"total":offer["price"],"remaining":max(0,offer["price"]-paid_now),"status":status,"payment_plan":"split" if is_split else "full","method":body.method,"merchant":MERCHANT_BY_ID[offer["merchant_id"]]}
     await publish(offer["intent_id"],"payment_received",result); return result
+
+
+def paytm_config() -> tuple[str, str, str, str]:
+    mid=os.getenv("PAYTM_MID","").strip(); key=os.getenv("PAYTM_MERCHANT_KEY","").strip(); website=os.getenv("PAYTM_WEBSITE","WEBSTAGING").strip()
+    if not mid or not key: raise HTTPException(503,"Paytm staging credentials are not configured")
+    host="https://securestage.paytmpayments.com" if os.getenv("PAYTM_ENV","staging").lower()=="staging" else "https://secure.paytmpayments.com"
+    return mid,key,website,host
+
+
+@app.post("/api/paytm/initiate")
+async def paytm_initiate(request:PaytmInitiateIn):
+    con=db(); offer=con.execute("SELECT * FROM offers WHERE id=?",(request.offer_id,)).fetchone(); con.close()
+    if not offer: raise HTTPException(404,"Offer not found")
+    mid,key,website,host=paytm_config(); order_id="VM"+uuid.uuid4().hex[:18].upper(); amount=float(request.amount or offer["price"])
+    callback=f"{host}/theia/paytmCallback?ORDER_ID={order_id}"
+    body={"requestType":"Payment","mid":mid,"websiteName":website,"orderId":order_id,"callbackUrl":callback,"txnAmount":{"value":f"{amount:.2f}","currency":"INR"},"userInfo":{"custId":"INTENT_MESH_USER"}}
+    signature=PaytmChecksum.generateSignature(json.dumps(body,separators=(",",":")),key)
+    url=f"{host}/theia/api/v1/initiateTransaction?mid={mid}&orderId={order_id}"
+    async with httpx.AsyncClient(timeout=20) as client: response=await client.post(url,json={"body":body,"head":{"signature":signature}})
+    result=response.json(); token=result.get("body",{}).get("txnToken")
+    if response.status_code!=200 or not token: raise HTTPException(502,{"message":"Paytm initiation failed","paytm":result.get("body",{}).get("resultInfo",{})})
+    return {"mid":mid,"orderId":order_id,"amount":f"{amount:.2f}","txnToken":token,"callbackUrl":callback,"isStaging":host.endswith("paytmpayments.com") and "stage" in host}
+
+
+@app.post("/api/paytm/status")
+async def paytm_status(request:PaytmStatusIn):
+    mid,key,_,host=paytm_config(); body={"mid":mid,"orderId":request.order_id}
+    signature=PaytmChecksum.generateSignature(json.dumps(body,separators=(",",":")),key)
+    async with httpx.AsyncClient(timeout=20) as client: response=await client.post(f"{host}/v3/order/status",json={"body":body,"head":{"signature":signature}})
+    if response.status_code!=200: raise HTTPException(502,"Paytm status verification failed")
+    return response.json()
 
 
 @app.get("/api/merchant/{mid}/opportunities")

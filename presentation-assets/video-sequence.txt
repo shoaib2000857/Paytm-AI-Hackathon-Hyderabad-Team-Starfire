@@ -1,0 +1,17 @@
+file 'screenshots/01_ask_paytm.png'
+duration 2.5
+file 'screenshots/02_intent_packet.png'
+duration 2.5
+file 'screenshots/03_merchant_mesh.png'
+duration 2.5
+file 'screenshots/04_merchant_soundbox.png'
+duration 3
+file 'screenshots/05_live_offers.png'
+duration 3
+file 'screenshots/06_checkout.png'
+duration 3
+file 'screenshots/07_payment_success.png'
+duration 2.5
+file 'screenshots/08_opportunity_pulse.png'
+duration 3
+file 'screenshots/08_opportunity_pulse.png'
